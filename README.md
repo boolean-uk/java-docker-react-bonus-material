@@ -1,4 +1,4 @@
-# Java Docker Day 1 workshop
+# Java Docker React Bonus Material
 
 ## Learning Objectives
 
@@ -182,6 +182,7 @@ npm install
 and finally run the application to make sure everything is working:
 
 ```bash
+
 npm run dev
 ```
 
