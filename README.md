@@ -158,3 +158,162 @@ docker run -d -p 4000:80 --name static-site prakhar1989/static-site
 ```
 
 Sometimes to access the resulting site I had to connect to `0.0.0.0:4000` rather than `localhost:4000` I am not sure why, if `localhost` doesn't work then you can try that instead.
+
+## Dockerising a React App
+
+Now we're going to look at how we can put one of our React Apps into a Docker container and run it from there. Let's create and run a new React App using Vite, that we'll then use as the basis for our Docker Image. Run the following command to create a new `react` app called `react-docker-example-app` using `vite`:
+
+```bash
+npm create vite@latest react-docker-example-app -- --template react
+```
+
+Next move into the directory created by this using:
+
+```bash
+cd react-docker-example-app
+```
+
+then download and install the dependencies:
+
+```bash
+npm install
+```
+
+and finally run the application to make sure everything is working:
+
+```bash
+npm run dev
+```
+
+This will start a development server running on Port 5173 by default. We can change this to a different port number in the `vite.config.js` file in the root of our project. Use `Ctrl-C` or just press `q` whilst the terminal is in focus, to stop the dev server from running and open `vite.config.js` using VS Code, it will probably look like this:
+
+```javascript
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+
+// https://vitejs.dev/config/
+export default defineConfig({
+  plugins: [react()],
+})
+```
+
+Change that to:
+
+```javascript
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+
+// https://vitejs.dev/config/
+export default defineConfig({
+  plugins: [react()],
+  server: {
+   host: true,
+   port: 8000,
+    watch: {
+      usePolling: true
+    }
+ }
+})
+```
+
+and then rerun the application. This time the development server will run on Port 8000. We can deploy our development server version to a Docker container and we might do so if we wanted to work on it, using the container without necessarily installing the same versions of Node and other dependencies. If we want a version of our application that we can deploy into production this would not be what we wanted however. Instead we would want to create our production version of our application and then deploy that into the container. Let's look at how we can do each of these.
+
+## Run the Dev Server in a Docker Container
+
+To do this we are going to copy our project into a suitable image and run the container that results, when it starts up we'll get it to run the dev server using port 8000, and then access that from outside the container. **REMEMBER: THIS IS NOT WHAT WE WILL DO WHEN DEPLOYING OUR SITE IN PRODUCTION!!!!!**
+
+To generate the image we're going to create a `Dockerfile` file in the top level of our project and then use that to download the base image, copy the files from the project into it and specify the other required commands that will run our application when we run the container. Create a new text file in the root directory of our project called `Dockerfile`.
+
+Add the following contents to it (we'll go through what they mean line by line afterwards):
+
+```bash
+FROM node:18-alpine
+
+WORKDIR /react-docker-example-app/
+
+COPY public/ /react-docker-example-app/public
+COPY src/ /react-docker-example-app/src
+COPY package.json /react-docker-example-app/
+COPY vite.config.js /react-docker-example-app/
+COPY index.html /react-docker-example-app/
+
+RUN npm install
+
+CMD ["npm", "run", "dev"]
+```
+
+The first line:
+
+```bash
+FROM node:18-alpine
+```
+
+downloads the base image we're using for this image which is based on Node version 18, the alpine version gives us a very lightweight base image to build upon
+
+The line which starts `WORKDIR` specifies the working directory that we will be in when we start the container running.
+
+Then we have 4 lines which use `COPY` to copy various directories and files into that working directory inside the container.
+
+The line:
+
+```bash
+RUN npm install
+```
+
+does the same thing in our container that happens in the local filesystem when we run `npm install`, it looks at the `package.json` file and installs all of the dependencies it finds there. This time however it does it into the container rather than our local machine.
+
+The final line:
+
+```bash
+RUN ["npm", "run", "dev"]
+```
+
+contains the command that gets run in our working directory when the container is run (ie `npm run dev`).
+
+Once you've saved the `Dockerfile` make sure your terminal is open in the top level directory and run the following command to build the image:
+
+```bash
+docker build -t react-docker-example-app .
+```
+
+This may take a while to run depending on what you have installed previously, after a few minutes hopefully you'll see the success message.
+
+At this stage we are ready to run the container and access our react app through the browser. Make sure you've stopped any other copies of the app from running and then run the following:
+
+```bash
+docker run -dp 8000:8000 --name react-docker react-docker-example-app:latest
+```
+
+If everything worked properly you should be able to access the application at [http://localhost:8000](http://localhost:8000)
+
+## Run the Production Version of the Application in a Docker Container
+
+The Dev server that is packaged with the application in React is fine for light use in a development setting but should not be deployed to a production setting, so we need to use `vite` to generate the static files our application is built on and then package them into a container along with lightweight server that is suitable for production use. A common server to use in this situation is called `Nginx` which has its own Docker image we can make use of as the basis for our production version of the application. Before we can do this though we need to generate the production files for our application. Run the following command to create these:
+
+```bash
+npm run build
+```
+
+This will create a new directory called `dist` in the directory and add in the required files. This folder is what we need our `Nginx` server to serve (we don't need to download and install all of the node modules as anything required has already been copied across into our code). As we already have a `Dockerfile` in here we can either rewrite that one to use our new commands or make a new folder with a new `Dockerfile` in it and copy the `dist` folder into there. The docker build command would then need to be run from that folder and if we altered our react application at all, we would need to rebuild it and copy the new folder over to there too. I'm going to rewrite the existing `Dockerfile` and work from the top level folder.
+
+Change the content of the `Dockerfile` to have the following in it:
+
+```bash
+FROM nginx
+
+COPY dist /usr/share/nginx/html
+```
+
+Build the container based on the `Dockerfile` as we did previously (give it a different name though).
+
+```bash
+docker build -t nginx-react .
+```
+
+Then run it exposing Port 80 in the container. That way we can just navigate to [http://localhost](http://localhost) to access the application:
+
+```bash
+docker run -dp 80:80 --name nginx-react nginx-react
+```
+
+Experiment with this and see how you could develop this further to use backends based on Spring or that use a PostgreSQL Database.
